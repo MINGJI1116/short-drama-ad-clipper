@@ -11,7 +11,8 @@ Runs the whole batch silently and internally:
 
 Usage:
   python pipeline.py <project.json> [--min-vbr 2500] [--retries 2] [--frames outdir]
-Exit codes: 0 = all pass; 2 = audit overlap; 1 = some clips failed after retries.
+Exit codes: 0 = all pass; 2 = audit overlap; 3 = episode coverage failed
+(all_episodes listed but some ep unused); 1 = some clips failed after retries.
 """
 import argparse
 import os
@@ -85,6 +86,18 @@ def main():
             print('  OVERLAP', x)
         sys.exit(2)
     print('AUDIT PASS — %d segments, 0 overlaps' % len(flat))
+
+    # ---- 1b. episode coverage (user rule: every provided episode must be used) ----
+    need = proj.get('all_episodes')
+    if need:
+        used = sorted({s[0] for s in flat})
+        missing = [e for e in need if e not in used]
+        if missing:
+            print('EPISODE COVERAGE FAILED — missing eps %s '
+                  '(every provided episode must appear in at least one clip; '
+                  'nothing was rendered)' % missing)
+            sys.exit(3)
+        print('EPISODE COVERAGE PASS — %d/%d eps %s' % (len(used), len(need), used))
 
     # ---- 2. build all ----
     todo = dict(proj['clips'])

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Stage 4a: UI overlay assets — logo patch, title card, static end card.
+"""Stage 4a: UI overlay assets — logo patch, bottom title banner, end card.
 
 Usage:
   python gen_assets.py --logo <logo.png> --brand "SODA TV" \
@@ -8,9 +8,13 @@ Usage:
 
 Outputs (in --out):
   logo_overlay.png  - rounded logo w/ soft shadow, for top-right overlay
-  title_card.png    - transparent full-frame title (brand + drama name, 4s)
+  title_banner.png  - transparent BOTTOM-CENTER persistent drama-name banner
+                      (white text + dark stroke + gold underline; shown 0s ->
+                      story end — the ONLY place the drama name appears in
+                      the story; no head title card is used)
   end_card.png      - OPAQUE dark end card: big logo + search box + store
-                      badges + tagline + drama name (3s static, review-safe)
+                      badges + tagline + drama name (3s static, review-safe;
+                      its drama name sits at the same bottom-center position)
 """
 import argparse
 import os
@@ -45,27 +49,44 @@ def build_logo_overlay(logo_path, out, logo_w=140):
     cv.save(out)
 
 
-def build_title_card(brand, t1, t2, W, H, out):
-    tc = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(tc)
-    f_brand = font('seguisb.ttf', 26)
-    brand_txt = ' '.join(brand.upper()) if len(brand) <= 12 else brand.upper()
-    brand_txt = '  '.join(brand.split()) + '   O R I G I N A L'
-    bw = d.textlength(brand_txt, font=f_brand)
-    d.text(((W - bw) / 2, 240), brand_txt, font=f_brand, fill=(255, 235, 200, 235))
-    d.rectangle([(W - bw) / 2 - 70, 254, (W - bw) / 2 - 24, 256], fill=(*GOLD, 220))
-    d.rectangle([(W + bw) / 2 + 24, 254, (W + bw) / 2 + 70, 256], fill=(*GOLD, 220))
-    f_title = font('georgiab.ttf', 84)
-    lines = [x for x in (t1, t2) if x]
-    for i, line in enumerate(lines):
-        tw = d.textlength(line, font=f_title)
-        x, y = (W - tw) / 2, 310 + i * 108
-        d.text((x + 4, y + 5), line, font=f_title, fill=(0, 0, 0, 200))
-        d.text((x, y), line, font=f_title, fill=(255, 255, 255, 245),
-               stroke_width=2, stroke_fill=(20, 20, 30, 220))
-    d.rectangle([W / 2 - 130, 552 + (len(lines) - 2) * 108,
-                 W / 2 + 130, 556 + (len(lines) - 2) * 108], fill=(*GOLD, 235))
-    tc.save(out)
+def build_title_banner(t1, t2, W, out):
+    """Bottom-center persistent drama-name banner (transparent, W x 96).
+
+    White bold-italic text with thick dark stroke + gold underline accent.
+    Font auto-shrinks until text fits W-80 px so it never touches frame edges.
+    """
+    name = ' '.join(x for x in (t1, t2) if x).strip()
+    H = 96
+    banner = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(banner)
+    fpath = None
+    for cand in ('arialbi.ttf', 'arialbd.ttf', 'segoeuib.ttf', 'arial.ttf'):
+        p = os.path.join(r'C:\Windows\Fonts', cand)
+        if os.path.exists(p):
+            fpath = p
+            break
+    size = round(38 * W / 720)
+    max_w = W - 80
+    while True:
+        f_main = (ImageFont.truetype(fpath, size) if fpath
+                  else ImageFont.load_default())
+        bb = d.textbbox((0, 0), name, font=f_main)
+        tw = bb[2] - bb[0]
+        if tw <= max_w or size <= 18:
+            break
+        size -= 2
+    x, y = (W - tw) // 2, 18
+    # soft shadow
+    d.text((x + 3, y + 3), name, font=f_main, fill=(0, 0, 0, 160),
+           stroke_width=6, stroke_fill=(0, 0, 0, 160))
+    # main text: white with thick dark outline
+    d.text((x, y), name, font=f_main, fill=(255, 255, 255, 255),
+           stroke_width=6, stroke_fill=(24, 20, 24, 255))
+    # thin gold underline accent
+    d.rectangle([x, y + bb[3] + 8, x + tw, y + bb[3] + 11],
+                fill=(232, 180, 74, 230))
+    banner.save(out)
+    return tw
 
 
 def build_end_card(logo_path, brand, t1, t2, tagline, W, H, out):
@@ -131,8 +152,9 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     build_logo_overlay(a.logo, os.path.join(a.out, 'logo_overlay.png'))
-    build_title_card(a.brand, a.title1, a.title2, a.width, a.height,
-                     os.path.join(a.out, 'title_card.png'))
+    tw = build_title_banner(a.title1, a.title2, a.width,
+                            os.path.join(a.out, 'title_banner.png'))
+    print('title_banner text width: %dpx (frame %dpx)' % (tw, a.width))
     build_end_card(a.logo, a.brand, a.title1, a.title2, a.tagline, a.width, a.height,
                    os.path.join(a.out, 'end_card.png'))
     print('assets done:', sorted(os.listdir(a.out)))

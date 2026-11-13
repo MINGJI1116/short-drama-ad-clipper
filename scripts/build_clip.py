@@ -9,12 +9,14 @@ project.json schema:
   "cheng_dir":   "D:/.../成片",          // subtitled masters (pinjie source)
   "nosub_dir":   "D:/.../无字幕成片",     // clean masters (jieping source)
   "episode_pattern": "第{ep:02d}集.mp4",  // optional, uses {ep}
-  "assets_dir":  ".../assets",           // logo_overlay.png / title_card.png / end_card.png
+  "assets_dir":  ".../assets",           // logo_overlay.png / title_banner.png
+                                         // (bottom persistent drama name) / end_card.png
   "tts_json":    ".../assets/tts/durations.json",  // required for jieping
   "bgm":         "path/to/soft_bgm.mp3", // single soft track, trimmed to clip
   "output_dir":  ".../成片素材输出",
   "shots_dir":   ".../shots",            // optional epNN.txt scene cuts (snapping)
   "resolution": [720, 1280], "fps": 30, "crf": 19, "endcard": 3.0,
+  "all_episodes": [1, 2, ..., 18],   // optional; audit enforces every ep is used
   "narr_gain": 1.35, "bgm_gain": 0.14,   // jieping mix; pinjie endcard bgm 0.55
   "clips": {
     "<full 9-part filename>": {
@@ -119,8 +121,11 @@ def build(name, cfg, proj, tts_meta):
     pat = proj.get('episode_pattern', '第{ep:02d}集.mp4').replace('{ep:02d}', '%02d').replace('{ep}', '%d')
     shots = common.load_shot_cuts(proj.get('shots_dir'))
     assets = proj['assets_dir']
-    logo, title, endimg = (os.path.join(assets, x) for x in
-                           ('logo_overlay.png', 'title_card.png', 'end_card.png'))
+    logo, endimg = (os.path.join(assets, x) for x in
+                    ('logo_overlay.png', 'end_card.png'))
+    # optional persistent bottom-center drama-name banner (user rule 2026-11-13)
+    banner = os.path.join(assets, 'title_banner.png')
+    has_banner = os.path.exists(banner)
 
     # resolve segments + narration schedule
     if cfg['type'] == 'pinjie':
@@ -161,14 +166,18 @@ def build(name, cfg, proj, tts_meta):
         inputs += ['-ss', '%.3f' % a, '-t', '%.3f' % (b - a), '-i', f]
     nvid = len(segs)
     inputs += ['-loop', '1', '-t', '%.2f' % (story + 0.5), '-i', logo]
-    inputs += ['-loop', '1', '-t', '4.2', '-i', title]
+    i_logo = nvid
+    i_ban = None
+    if has_banner:
+        inputs += ['-loop', '1', '-t', '%.2f' % (story + 0.5), '-i', banner]
+        i_ban = nvid + 1
     inputs += ['-loop', '1', '-t', '%.2f' % endcard, '-i', endimg]
-    i_logo, i_title, i_ec = nvid, nvid + 1, nvid + 2
+    i_ec = (nvid + 2) if has_banner else (nvid + 1)
     aux = ([os.path.join(os.path.dirname(proj['tts_json']), f) for _, f in narr_events]
            if is_jp else []) + [proj['bgm']]
     for p in aux:
         inputs += ['-i', p]
-    i_aux0 = nvid + 3
+    i_aux0 = i_ec + 1
 
     # ---- filter graph ----
     fc = []
@@ -177,8 +186,16 @@ def build(name, cfg, proj, tts_meta):
     fc.append('%sconcat=n=%d:v=1:a=0[vcat]' % (''.join('[vi%d]' % i for i in range(nvid)), nvid))
     fc.append('[%d:v]format=rgba[lgo]' % i_logo)
     fc.append('[vcat][lgo]overlay=x=W-w-24:y=24[v0]')
-    fc.append('[%d:v]format=rgba,fade=t=in:st=0:d=0.4:alpha=1,fade=t=out:st=3.4:d=0.6:alpha=1[ttl]' % i_title)
-    fc.append("[v0][ttl]overlay=x=0:y=0:enable='lte(t,4.0)'[v1]")
+    # no head title card (user rule 2026-11-13: open directly on story events);
+    # persistent bottom-center drama name runs 0 -> story end, so the name
+    # stays in ONE place (bottom center) for the whole video; the end card
+    # carries its own drama name at the same bottom-center position
+    if has_banner:
+        fc.append('[%d:v]format=rgba[ban]' % i_ban)
+        fc.append("[v0][ban]overlay=x=(W-w)/2:y=H-h-30:"
+                  "enable='between(t,0,%.2f)'[v1]" % story)
+    else:
+        fc.append('[v0]copy[v1]')
     fc.append('[v1]format=yuv420p[vmain]')
     fc.append('color=c=black:s=%dx%d:r=%d:d=%.2f[cb]' % (W, H, FPS, endcard))
     fc.append('[%d:v]format=rgba[eo]' % i_ec)
@@ -217,7 +234,8 @@ def build(name, cfg, proj, tts_meta):
         fc.append('[mx]alimiter=limit=0.9,apad=whole_dur=%.2f,atrim=0:%.2f,%s[aout]'
                   % (total, total, A4))
 
-    out = os.path.join(proj['output_dir'], name + '.mp4')
+    base = name[:-4] if name.lower().endswith('.mp4') else name
+    out = os.path.join(proj['output_dir'], base + '.mp4')
     cmd = [common.get_ffmpeg(), '-y', '-hide_banner', '-loglevel', 'error']
     cmd += inputs
     cmd += ['-filter_complex', ';\n'.join(fc), '-map', '[vout]', '-map', '[aout]',

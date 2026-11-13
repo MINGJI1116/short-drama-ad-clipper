@@ -3,6 +3,9 @@
 
 Reads a clips JSON (same schema as build_clip.py) and checks that no footage
 range is reused across clips. Exits 2 on any overlap.
+Also checks EPISODE COVERAGE: if project.json has "all_episodes": [1,...,N],
+every listed episode must appear in at least one segment (user rule
+2026-11-13: every provided episode must be used). Exits 3 if any missing.
 
 Usage:
   python audit_segments.py <project.json>
@@ -60,6 +63,22 @@ def main():
     print('=== GLOBAL AUDIT: %d segments, %d overlaps' % (len(all_segs), len(bad)))
     for x in bad:
         print('  OVERLAP', x)
+
+    # --- episode coverage check (user rule: every provided episode must be used) ---
+    need = proj.get('all_episodes')
+    if need:
+        used = sorted({s[0] for s in all_segs})
+        missing = [e for e in need if e not in used]
+        extra = [e for e in used if e not in need]
+        print('=== EPISODE COVERAGE: used %d/%d eps %s'
+              % (len(used), len(need), used))
+        for e in missing:
+            print('  MISSING ep%d (provided but unused — add a segment)' % e)
+        if extra:
+            print('  NOTE eps outside all_episodes: %s' % extra)
+        if missing:
+            sys.exit(3)
+
     if bad:
         sys.exit(2)
     print('AUDIT PASS')

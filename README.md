@@ -1,47 +1,53 @@
-# 短剧投流素材批量剪辑流水线（WorkBuddy Skill）
+# short-drama-ad-clipper
 
-短剧海外投流素材批量剪辑：原片拼接 + 二创解说双轨，一键跑完「勘察 → 剧情地图 → 选段规划(全局去重) → 界面元素 → TTS 配音 → ffmpeg 批量构建 → 质检自纠」全流程，只交付最终合格版。
+短剧海外投流素材**一次性剪辑** Skill（WorkBuddy Agent Skill）。
 
-## 能力
+给一套短剧素材（成片 / 无字幕成片 / 字幕 / BGM / logo），一键跑完：勘察 → 一次问齐 → 选段规划 → 元素与配音 → 批量构建 → 五维质检 → 九段式命名交付。中间审计失败、码率不足、静音超标等问题全部内部自检自纠，只交付最终合格版。
 
-- **素材勘察**：目录盘点、ffprobe 规格、抽帧验字幕/贴片/画面类型、SRT → cue 表 → 剧情地图
-- **选段规划**：镜头切点检测 + 边界吸附跳剪、五类模板（多集串联/单个高潮/高光混剪/高光前置/二创解说）、**全局唯一审计（0 重叠才准渲染）**
-- **解说制作**：edge-tts 神经语音多语种配音、逐句对位排程、密度控制（停顿 ≤2s、无 ≥2.5s 无声段）、ASS 字幕烧录
-- **一键构建**：720×1280 / H.264 / CRF19 / AAC 160k，logo + 片头剧名条 + 静态落版三件套，码率自纠（不足自动降 CRF 重建）
-- **六维质检**：规格 / 电平 / 静音 / 转录 / 画面 / 命名
+## 核心规则（全部经实战复盘沉淀）
+
+1. **交付契约**：全程只与用户交互两次——开工前一次问齐（剧代号必问），交付时一次；其余内部静默完成；
+2. **单条约 2 分钟**：每条素材（正片 + 落版）目标 ≈117–125s；
+3. **默认只做跳剪拼接**：按剧情线跳剪、切点吸附镜头边界，不默认产出混剪/高光前置/解说多类型；
+4. **每集必用**：`all_episodes` 渲染前强校验，缺集 exit 3 拦截，不存在"某集忘了用"；
+5. **开场直接进事件，剧名唯一位置**：无片头大标题；剧名贴片底部居中、0s 起常驻至正片结束，落版同位置衔接。
 
 ## 目录结构
 
 ```
-SKILL.md               # skill 主入口：交付契约 + 七阶段流程 + 差异适配
-references/spec.md     # 硬性规范速查（九段式命名/输出规格/界面元素）
-references/sop.md      # 完整 SOP（核心原则/选段规划/构建/质检/踩坑 15 条）
+SKILL.md               # 总控：交付契约、硬指标、7 Stage 编排、素材差异适配
+references/
+  spec.md              # 硬性规范速查：九段式命名、输出规格、界面元素、解说规范
+  sop.md               # 完整 SOP：9 原则、构建管线、六维质检、22 条踩坑记录
 scripts/
-  survey.py            # Stage 1: 素材勘察
-  srt_to_cues.py       # Stage 1: SRT -> cue 表
-  scene_cuts.py        # Stage 3: 镜头切点检测
-  audit_segments.py    # Stage 3: 全局选段唯一性审计
-  gen_assets.py        # Stage 4: logo/剧名条/落版三件套（PIL）
-  gen_tts_edge.py      # Stage 4: edge-tts 配音 + durations.json
-  build_clip.py        # Stage 5: 单条素材构建（ffmpeg 滤镜链）
-  pipeline.py          # Stage 5: 审计 -> 构建 -> 自纠 -> QC 一键编排
-  qc_clips.py          # Stage 6: 五维质检
-  common.py            # 公共工具（ffmpeg 解析/probe/吸附）
+  common.py            # 公共工具（ffmpeg 路径、运行命令、时长解析）
+  survey.py            # Stage 1 素材勘察（ffprobe + 抽帧）
+  srt_to_cues.py       # SRT → cue 表 → 剧情地图
+  scene_cuts.py        # 镜头边界检测（scene 0.30 / AI 剧 0.15）
+  audit_segments.py    # 全局去重 + 每集覆盖审计（渲染前拦截）
+  gen_assets.py        # PIL 生成 logo 贴片 / 底部剧名贴片 / 落版
+  gen_tts_edge.py      # edge-tts 神经语音逐句配音 + durations
+  build_clip.py        # project.json 驱动单条构建（滤镜图 / 音频链）
+  qc_clips.py          # 规格码率电平质检
+  pipeline.py          # 一键流水线：审计→构建→质检→失败自动重试→唯一汇总
 ```
 
-## 依赖
+## 快速开始
 
 ```bash
-pip install imageio-ffmpeg pillow edge-tts   # Python 3.10+
+pip install imageio-ffmpeg pillow edge-tts
+
+python scripts/survey.py <素材目录> --out survey.json --frames frames
+python scripts/scene_cuts.py <成片目录> shots --max 18 --threshold 0.30
+python scripts/pipeline.py project.json --min-vbr 2500 --retries 2 --frames qc_frames
 ```
 
-ffmpeg 由 imageio-ffmpeg 自带，也可用 `FFMPEG_PATH` 环境变量指定。
+`pipeline.py` exit 0 = 全部 PASS，可直接交付。project.json 的 schema 见 `scripts/build_clip.py` 文档字符串。
 
-## 硬性默认指标
+## 输出规格
 
-1. **单条时长约 2 分钟**（正片+落版 ≈117–125s），规划前先验算素材总量；
-2. **解说密度必须够**：句间停顿 ≤2s，交付前 silencedetect 验证零 ≥2.5s 无声段，BGM 全程覆盖。
+720×1280 / H.264 / 30fps / 码率 ≥2500kbps（不足自动降 CRF 重试）/ AAC 160k，九段式命名 `时间_序号_中文剧名_剧代号_集数_素材分类_时长_缩写_自定义项`。
 
 ## 来源
 
-由 2026-11 海外短剧投流实战项目（TK《假离婚真后悔》、SODA《Pregnant by My Husband's Friend》等）复盘提炼，全部步骤与参数经过实测验证。
+由《假离婚真后悔》(OAEN2457) 与《Pregnant by My Husband's Friend》两个实战项目复盘提炼，全部规则经用户逐条确认。
