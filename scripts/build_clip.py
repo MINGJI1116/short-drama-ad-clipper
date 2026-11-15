@@ -233,7 +233,11 @@ def build(name, cfg, proj, tts_meta):
             fc.append('[%d:a]atrim=0:%.2f,volume=%.2f,afade=t=in:st=0:d=0.6,afade=t=out:st=%.2f:d=1.3,%s[bg]'
                       % (k, total + 0.2, bgm_gain, total - 1.3, A4))
             fc.append('%samix=inputs=%d:duration=longest:normalize=0[nv]' % (''.join(parts), len(parts)))
-            fc.append('[nv]asplit=2[nsc][nmix]')
+            # pad the sidechain to full length: sidechaincompress otherwise
+            # terminates at sidechain EOF, truncating the BGM bed at the last
+            # narration end (tail silence bug, 2026-11-15 OAEN2775)
+            fc.append('[nv]asplit=2[nsc0][nmix]')
+            fc.append('[nsc0]apad=whole_dur=%.2f[nsc]' % (total + 0.5))
             fc.append('[bg][nsc]sidechaincompress=threshold=0.03:ratio=10:attack=15:release=350[bgd]')
             fc.append('[nmix][bgd]amix=inputs=2:duration=longest:normalize=0[mx]')
         else:
