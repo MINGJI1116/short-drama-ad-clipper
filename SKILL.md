@@ -29,7 +29,7 @@ agent_created: true
 4. **每集必用**：用户提供的成片素材中**每一集都必须至少出现在一条素材里**。project.json 写 `all_episodes`，audit/pipeline 强校验（缺集 exit 3，渲染前拦截）。
 5. **开场直接进事件，剧名唯一位置**：素材开头直接用剧情事件抓注意力，**不加片头大标题贴片**；剧名贴片**底部居中、0s 起常驻至正片结束**（落版自带剧名同位置衔接）——全片剧名只出现在底部这一个地方，不遮右上 logo、不压字幕。
 
-**硬性规范**：开工前读 `references/spec.md`（九段式命名、输出规格、界面元素、解说规范、工艺参数）；细节与踩坑在 `references/sop.md`。素材差异（语种/剧名/集数/画幅/有无字幕）一切以勘察结果为准，不得假设。
+**硬性规范**：开工前读 `references/spec.md`（九段式命名、输出规格、界面元素、解说规范、工艺参数）；细节与踩坑在 `references/sop.md`；**`references/environment.md`（本机运行环境：Python/ffmpeg/字体/路径，新机或新会话开工前必读，可直接发给执行 AI）与 `references/pitfalls.md`（首次场景案例库，开工前通读，遇到新场景修复后按四段式追加）**。素材差异（语种/剧名/集数/画幅/有无字幕）一切以勘察结果为准，不得假设。
 
 ## Stage 1 勘察（内部，静默）
 
@@ -113,7 +113,7 @@ exit 1/2/3：按汇总失败原因修 project.json（选段/字幕样式/增益�
 | 只给部分集的 BGM/字幕 | 可用集数 = 交集，Stage 2 一并问清 |
 | BGM 缺失 | 用同工作流软垫乐兜底（见 Stage 4），交付清单注明 |
 
-## 常见坑（详见 references/sop.md 第八章）
+## 常见坑（详见 references/sop.md 第八章；首次场景案例库见 references/pitfalls.md——含文件名不规则/字体缺字/暗场欠码率/BGM 响度过低等案例的根因与通用解法）
 
 - ffmpeg 9 无 `-filter_complex_script`（脚本已规避，勿手动加回）；
 - showinfo 切点解析认准 `pts_time:` 前缀；SRT 逗号毫秒需先换 `.`；

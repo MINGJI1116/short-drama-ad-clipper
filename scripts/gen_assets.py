@@ -131,10 +131,15 @@ def build_end_card(logo_path, brand, t1, t2, tagline, W, H, out):
         else:
             d.polygon([(bx + 222, by + 28), (bx + 222, by + 66), (bx + 252, by + 47)],
                       fill=(255, 255, 255, 235))
-    # drama name bottom
-    f_dn = font('segoeuib.ttf', 30)
+    # drama name bottom (auto-shrink to fit frame width, min 16px)
     dn = '  '.join(x for x in (t1, t2) if x)
-    tw = d.textlength(dn, font=f_dn)
+    dn_size = 30
+    while dn_size > 16:
+        f_dn = font('segoeuib.ttf', dn_size)
+        tw = d.textlength(dn, font=f_dn)
+        if tw <= W - 40:
+            break
+        dn_size -= 2
     d.text(((W - tw) / 2, 1150), dn, font=f_dn, fill=(255, 255, 255, 200))
     ec.save(out)
 

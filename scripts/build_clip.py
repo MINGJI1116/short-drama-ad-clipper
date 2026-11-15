@@ -226,11 +226,22 @@ def build(name, cfg, proj, tts_meta):
             parts.append('[nl%d]')
             parts[-1] = parts[-1] % k
             k += 1
-        bgm_gain = proj.get('bgm_gain', 0.14)
-        fc.append('[%d:a]atrim=0:%.2f,volume=%.2f,afade=t=in:st=0:d=0.6,afade=t=out:st=%.2f:d=1.3,%s[bg]'
-                  % (k, total + 0.2, bgm_gain, total - 1.3, A4))
-        parts.append('[bg]')
-        fc.append('%samix=inputs=%d:duration=longest:normalize=0[mx]' % (''.join(parts), len(parts)))
+        if proj.get('bgm_duck'):
+            # ducked-BGM mode: BGM pre-normalized (loudnorm) source, speech
+            # sidechain ducks the bed so narration stays dominant.
+            bgm_gain = proj.get('bgm_gain', 0.6)
+            fc.append('[%d:a]atrim=0:%.2f,volume=%.2f,afade=t=in:st=0:d=0.6,afade=t=out:st=%.2f:d=1.3,%s[bg]'
+                      % (k, total + 0.2, bgm_gain, total - 1.3, A4))
+            fc.append('%samix=inputs=%d:duration=longest:normalize=0[nv]' % (''.join(parts), len(parts)))
+            fc.append('[nv]asplit=2[nsc][nmix]')
+            fc.append('[bg][nsc]sidechaincompress=threshold=0.03:ratio=10:attack=15:release=350[bgd]')
+            fc.append('[nmix][bgd]amix=inputs=2:duration=longest:normalize=0[mx]')
+        else:
+            bgm_gain = proj.get('bgm_gain', 0.14)
+            fc.append('[%d:a]atrim=0:%.2f,volume=%.2f,afade=t=in:st=0:d=0.6,afade=t=out:st=%.2f:d=1.3,%s[bg]'
+                      % (k, total + 0.2, bgm_gain, total - 1.3, A4))
+            parts.append('[bg]')
+            fc.append('%samix=inputs=%d:duration=longest:normalize=0[mx]' % (''.join(parts), len(parts)))
         fc.append('[mx]alimiter=limit=0.9,apad=whole_dur=%.2f,atrim=0:%.2f,%s[aout]'
                   % (total, total, A4))
 
@@ -238,10 +249,19 @@ def build(name, cfg, proj, tts_meta):
     out = os.path.join(proj['output_dir'], base + '.mp4')
     cmd = [common.get_ffmpeg(), '-y', '-hide_banner', '-loglevel', 'error']
     cmd += inputs
-    cmd += ['-filter_complex', ';\n'.join(fc), '-map', '[vout]', '-map', '[aout]',
-            '-c:v', 'libx264', '-preset', 'medium', '-crf', CRF,
-            '-maxrate', '4000k', '-bufsize', '8000k', '-profile:v', 'high',
-            '-pix_fmt', 'yuv420p', '-r', str(FPS),
+    cmd += ['-filter_complex', ';\n'.join(fc), '-map', '[vout]', '-map', '[aout]']
+    vbr_target = os.environ.get('VBR_TARGET') or str(proj.get('vbr_target') or '')
+    if vbr_target:
+        # ABR mode: guarantee delivery bitrate on low-complexity sources where
+        # CRF undershoots (dark cabin scenes); maxrate still bounds quality.
+        minr = max(1200, int(int(vbr_target) * 0.85))
+        cmd += ['-c:v', 'libx264', '-preset', 'medium', '-b:v', vbr_target + 'k',
+                '-minrate', str(minr) + 'k', '-maxrate', '4000k',
+                '-bufsize', '8000k', '-profile:v', 'high']
+    else:
+        cmd += ['-c:v', 'libx264', '-preset', 'medium', '-crf', CRF,
+                '-maxrate', '4000k', '-bufsize', '8000k', '-profile:v', 'high']
+    cmd += ['-pix_fmt', 'yuv420p', '-r', str(FPS),
             '-c:a', 'aac', '-b:a', '160k', '-ar', '44100',
             '-movflags', '+faststart', out]
     print('=== building', name)
