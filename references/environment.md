@@ -39,7 +39,7 @@
 ## Skill 与代码
 - Skill 位置：`C:/Users/LENOVO/.workbuddy/skills/short-drama-ad-clipper/`（本地目录**不是 git 仓库**）
 - GitHub 镜像仓库：`MINGJI1116/short-drama-ad-clipper`（main 分支），更新用 github MCP 的 push_files（本地无 git 凭据，不要尝试本地 git push）
-- Skill 脚本读取的环境变量：`FFMPEG_PATH`（ffmpeg 路径）、`VBR_TARGET`（设置后 build_clip.py 走 ABR 模式，值如 `2800`，用于暗场剧码率保底）
+- Skill 脚本读取的环境变量：`FFMPEG_PATH`（ffmpeg 路径）、`VBR_TARGET`（设置后 build_clip.py 走 CBR-HRD 模式，值如 `2800`，暗场剧码率硬保底——nal-hrd=cbr 填充，ABR 在暗场仍会欠码率）
 
 ## 素材目录约定（用户既有习惯）
 ```
@@ -57,7 +57,7 @@ D:\工作专用\<剧名>\
 ## 快速启动命令模板
 ```bash
 export FFMPEG_PATH="D:/BilibiliConvertQT_v1.0.11/ffmpeg.exe"
-export VBR_TARGET=2800   # 暗场剧建议默认开启
+export VBR_TARGET=2800   # 暗场剧建议默认开启（CBR-HRD 硬保码率）
 PY="C:/Users/LENOVO/AppData/Local/Programs/Python/Python313/python.exe"
 cd "C:/Users/LENOVO/.workbuddy/skills/short-drama-ad-clipper"
 "$PY" scripts/survey.py "<素材根目录>" --out "<work>/survey.json" --frames "<work>/frames"

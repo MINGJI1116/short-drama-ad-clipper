@@ -246,7 +246,7 @@ def build(name, cfg, proj, tts_meta):
                 fc.append('%s[ai%d]acrossfade=d=%.3f[ax%d]'
                           % (prev, j, sm[j - 1], j - 1))
                 prev = '[ax%d]' % (j - 1)
-            fc.append('%snull[acat]' % prev)
+            fc.append('%sanull[acat]' % prev)   # anull: audio passthrough (null is video-only)
         else:
             fc.append('%sconcat=n=%d:v=0:a=1[acat]'
                       % (''.join('[ai%d]' % i for i in range(nvid)), nvid))
@@ -294,12 +294,13 @@ def build(name, cfg, proj, tts_meta):
     cmd += ['-filter_complex', ';\n'.join(fc), '-map', '[vout]', '-map', '[aout]']
     vbr_target = os.environ.get('VBR_TARGET') or str(proj.get('vbr_target') or '')
     if vbr_target:
-        # ABR mode: guarantee delivery bitrate on low-complexity sources where
-        # CRF undershoots (dark cabin scenes); maxrate still bounds quality.
-        minr = max(1200, int(int(vbr_target) * 0.85))
+        # CBR-HRD mode: plain ABR still undershoots on dark low-complexity
+        # content (ep15-17 hit 1451k < minrate). nal-hrd=cbr pads with filler
+        # NALs so delivery bitrate is guaranteed floor-stable.
         cmd += ['-c:v', 'libx264', '-preset', 'medium', '-b:v', vbr_target + 'k',
-                '-minrate', str(minr) + 'k', '-maxrate', '4000k',
-                '-bufsize', '8000k', '-profile:v', 'high']
+                '-minrate', vbr_target + 'k', '-maxrate', vbr_target + 'k',
+                '-bufsize', '8000k',
+                '-x264-params', 'nal-hrd=cbr:force-cfr=1', '-profile:v', 'high']
     else:
         cmd += ['-c:v', 'libx264', '-preset', 'medium', '-crf', CRF,
                 '-maxrate', '4000k', '-bufsize', '8000k', '-profile:v', 'high']
