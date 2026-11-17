@@ -52,7 +52,7 @@ python scripts/srt_to_cues.py <字幕目录> <work>/cues.txt --pattern "第%02d�
 python scripts/scene_cuts.py <成片目录> <work>/shots --max <集数> --threshold 0.30
 ```
 
-- 全部为「拼接 + 跳剪」条：每段 2–8s、切点吸附镜头边界（解说条逐句对位，anchor = 该句描述场景起点，密度按停顿 ≤2s 预算句数）；
+- 全部为「拼接 + 跳剪」条：**选段单位 = 完整对白块，切点 = 语音间隙**（2026-11-17 用户硬性要求）：解析 SRT 对白时间轴，cue 间 gap <1.4s 的连续台词合并为完整对话块（一问一答闭环），以块为最小剪辑单位；块间 ≤6s 过渡画面并入保持剧情连续（段数 3–9 段/条，禁止 2–8s 碎片）；**切点必须落在句间静默（句尾 ≥0.45s、句头 ≥0.25s），规划后逐点对照 SRT 断言 0 违规**，project.json 写 `nosnap:true` 禁止镜头吸附改写语音安全切点；冗长对话的微小修剪衔接用 0.4s xfade 溶解（每条 ≤2 处，`cfg['smooth']`），其余硬切；解说条逐句对位，anchor = 该句描述场景起点，密度按停顿 ≤2s 预算句数；
 - **每集覆盖**：把可用全集写入 project.json `all_episodes`，规划完成后核对每一集都有选段，缺集回填；
 - **时长预算先行**：目标每条 ≈117–125s，全局去重后各条正片仍要 ≥114s；
 - 全局唯一：任何一段画面只出现在一条素材里；
@@ -113,7 +113,7 @@ exit 1/2/3：按汇总失败原因修 project.json（选段/字幕样式/增益�
 | 只给部分集的 BGM/字幕 | 可用集数 = 交集，Stage 2 一并问清 |
 | BGM 缺失 | 用同工作流软垫乐兜底（见 Stage 4），交付清单注明 |
 
-## 常见坑（详见 references/sop.md 第八章；首次场景案例库见 references/pitfalls.md——含文件名不规则/字体缺字/暗场欠码率/BGM 响度过低等案例的根因与通用解法）
+## 常见坑（详见 references/sop.md 第八章；首次场景案例库见 references/pitfalls.md——含文件名不规则/字体缺字/暗场欠码率/BGM 响度过低/跳剪切话返工等案例的根因与通用解法）
 
 - ffmpeg 9 无 `-filter_complex_script`（脚本已规避，勿手动加回）；
 - showinfo 切点解析认准 `pts_time:` 前缀；SRT 逗号毫秒需先换 `.`；

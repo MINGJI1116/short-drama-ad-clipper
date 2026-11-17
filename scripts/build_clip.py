@@ -21,7 +21,13 @@ project.json schema:
   "clips": {
     "<full 9-part filename>": {
       "type": "pinjie",
-      "segs": [[ep, a, b], ...]
+      "segs": [[ep, a, b], ...],
+      "nosnap": true,                      // disable shot-cut snapping (set by
+                                           // speech-aware planners: boundaries
+                                           // are dialogue-safe, don't move them)
+      "smooth": {"fade": 0.4, "at": [1, 2]}  // optional: 0.4s xfade+acrossfade
+                                             // dissolve AFTER segment i (others
+                                             // stay hard cuts; pinjie only)
     },
     "<full 9-part filename>": {
       "type": "jieping", "narr_id": "d1", "tail": 2.3,
@@ -130,7 +136,10 @@ def build(name, cfg, proj, tts_meta):
     # resolve segments + narration schedule
     if cfg['type'] == 'pinjie':
         segs = [tuple(s) for s in cfg['segs']]
-        if shots:   # snap boundaries to scene cuts unless another clip already uses them
+        # speech-aware planner boundaries are dialogue-safe; snapping would
+        # move them into speech, so respect cfg['nosnap'] (set by planners
+        # that guarantee speech-safe boundaries)
+        if shots and not cfg.get('nosnap'):
             bounds = {}
             for n2, s2 in all_segs_of(proj).items():
                 for ep, a, b in s2:
@@ -180,10 +189,30 @@ def build(name, cfg, proj, tts_meta):
     i_aux0 = i_ec + 1
 
     # ---- filter graph ----
+    # optional smooth transitions (user rule 2026-11-17): selected pinjie
+    # boundaries use a 0.4s crossfade; all other boundaries stay hard cuts
+    # (emulated as a 1-frame xfade so one chain handles both).
+    sm = None
+    if cfg['type'] == 'pinjie' and cfg.get('smooth') and nvid > 1:
+        fade = float(cfg['smooth'].get('fade', 0.4))
+        sm_at = set(cfg['smooth'].get('at', []))
+        sm = [fade if i in sm_at else 1.0 / FPS for i in range(nvid - 1)]
     fc = []
     for i in range(nvid):
-        fc.append('[%d:v]scale=%d:%d:flags=lanczos,setsar=1,fps=%d[vi%d]' % (i, W, H, FPS, i))
-    fc.append('%sconcat=n=%d:v=1:a=0[vcat]' % (''.join('[vi%d]' % i for i in range(nvid)), nvid))
+        fc.append('[%d:v]scale=%d:%d:flags=lanczos,setsar=1,fps=%d,format=yuv420p[vi%d]'
+                  % (i, W, H, FPS, i))
+    if sm:
+        prev, L = '[vi0]', segs[0][2] - segs[0][1]
+        for j in range(nvid - 1):
+            off = max(0.0, L - sm[j])
+            fc.append('%s[vi%d]xfade=transition=fade:duration=%.3f:offset=%.3f[x%d]'
+                      % (prev, j + 1, sm[j], off, j))
+            L = off + (segs[j + 1][2] - segs[j + 1][1])
+            prev = '[x%d]' % j
+        fc.append('%snull[vcat]' % prev)
+    else:
+        fc.append('%sconcat=n=%d:v=1:a=0[vcat]'
+                  % (''.join('[vi%d]' % i for i in range(nvid)), nvid))
     fc.append('[%d:v]format=rgba[lgo]' % i_logo)
     fc.append('[vcat][lgo]overlay=x=W-w-24:y=24[v0]')
     # no head title card (user rule 2026-11-13: open directly on story events);
@@ -211,7 +240,16 @@ def build(name, cfg, proj, tts_meta):
     if not is_jp:
         for i in range(nvid):
             fc.append('[%d:a]%s[ai%d]' % (i, A4, i))
-        fc.append('%sconcat=n=%d:v=0:a=1[acat]' % (''.join('[ai%d]' % i for i in range(nvid)), nvid))
+        if sm:
+            prev = '[ai0]'
+            for j in range(1, nvid):
+                fc.append('%s[ai%d]acrossfade=d=%.3f[ax%d]'
+                          % (prev, j, sm[j - 1], j - 1))
+                prev = '[ax%d]' % (j - 1)
+            fc.append('%snull[acat]' % prev)
+        else:
+            fc.append('%sconcat=n=%d:v=0:a=1[acat]'
+                      % (''.join('[ai%d]' % i for i in range(nvid)), nvid))
         fc.append('[%d:a]atrim=0:%.2f,afade=t=out:st=%.2f:d=1.0,volume=0.55,%s[aend]'
                   % (i_aux0, endcard + 0.2, endcard - 1.0, A4))
         fc.append('[acat][aend]concat=n=2:v=0:a=1[amix]')
