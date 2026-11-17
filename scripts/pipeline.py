@@ -99,6 +99,28 @@ def main():
             sys.exit(3)
         print('EPISODE COVERAGE PASS — %d/%d eps %s' % (len(used), len(need), used))
 
+    # ---- 1c. source-file existence (a missing master must be fatal BEFORE
+    # rendering: ffmpeg reports it as "file: Invalid argument" mid-batch,
+    # after the earlier clips have already been written) ----
+    pat = (proj.get('episode_pattern', '第{ep:02d}集.mp4')
+           .replace('{ep:02d}', '%02d').replace('{ep}', '%d'))
+    miss = []
+    for name, cfg in proj['clips'].items():
+        src = proj['nosub_dir'] if cfg['type'] == 'jieping' else proj['cheng_dir']
+        for ep, _a, _b in segs_map[name]:
+            f = os.path.join(src, pat % ep)
+            if not os.path.exists(f):
+                miss.append('%s ep%d -> %s' % (name[:24], ep, f))
+    if miss:
+        print('SOURCE FILES MISSING — nothing was rendered. For jieping '
+              'clips the NOSUB master must exist (cheng ep with burned subs '
+              'is NOT a substitute); re-anchor those lines to episodes that '
+              'have clean masters:')
+        for x in sorted(set(miss)):
+            print('  MISSING', x)
+        sys.exit(4)
+    print('SOURCE FILES PASS — all segment masters exist')
+
     # ---- 2. build all ----
     todo = dict(proj['clips'])
     done, results = {}, {}
