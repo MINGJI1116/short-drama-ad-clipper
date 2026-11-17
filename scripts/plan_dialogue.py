@@ -101,6 +101,18 @@ def free_slots(ep, oc, ep_dur):
     if ep_dur[ep] - t >= GAP_MIN: out.append((t, ep_dur[ep]))
     return out
 
+def fmt_eps(eps):
+    """Episode list -> name segment: consecutive runs 'a--b', jumps '-'
+    (user rule: 19-20-21-22 must render as 19--22, never 19-20-21-22)."""
+    eps = sorted(set(eps)); out = []; i = 0
+    while i < len(eps):
+        j = i
+        while j + 1 < len(eps) and eps[j + 1] == eps[j] + 1:
+            j += 1
+        out.append(str(eps[i]) if i == j else '%d--%d' % (eps[i], eps[j]))
+        i = j + 1
+    return '-'.join(out)
+
 def alloc_narr(spec, occ, ep_dur, work, proj=None):
     import json as J
     tts = J.load(open(os.path.join(work, 'assets/tts/durations.json'), encoding='utf-8'))
@@ -159,7 +171,7 @@ def alloc_narr(spec, occ, ep_dur, work, proj=None):
             lines.append([int(ep), start]); ends[str(i)] = end; eps.append(int(ep))
             if fbep: print('  %s L%02d ->ep%s (overflow)' % (nid, i, fbep))
         story = sum(ends[str(i)] - lines[i - 1][1] for i in range(1, len(lines) + 1))
-        name = '%s_%s' % (pref, '-'.join(str(x) for x in sorted(set(eps))))
+        name = '%s_%s' % (pref, fmt_eps(eps))
         clips[nid] = {'name': name, 'cfg': {'type': 'jieping', 'narr_id': nid,
                       'tail': 2.3, 'lines': lines, 'ends': ends}}
         print('%s %s lines=%d speech=%.1f g=%.2f story=%.1f total=%.1f'
