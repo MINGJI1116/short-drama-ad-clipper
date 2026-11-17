@@ -42,7 +42,9 @@ Usage:
   python build_clip.py <project.json> [name_filter ...]
 Env: CRF=19 override; FORCE=1 build despite audit overlap (not recommended)
 """
+import math
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -169,10 +171,38 @@ def build(name, cfg, proj, tts_meta):
     src_dir = proj['nosub_dir'] if is_jp else proj['cheng_dir']
 
     # ---- inputs ----
+    _dur_cache = {}
+
+    def _file_dur(f):
+        """Real media duration; a segment ending past EOF yields a short
+        concat input whose xfade/framesync timing collapses (renders as a
+        looping freeze), so every -t is clamped to what the file has."""
+        if f not in _dur_cache:
+            r = common.subprocess_run([common.get_ffmpeg(), '-hide_banner',
+                                       '-i', f])
+            m = re.search(r'Duration: (\d+):(\d+):([\d.]+)', ''.join(r))
+            _dur_cache[f] = ((int(m.group(1)) * 3600 + int(m.group(2)) * 60 +
+                              float(m.group(3))) if m else 1e9)
+        return _dur_cache[f]
+
     inputs = []
+    segs_q = []
     for ep, a, b in segs:
         f = os.path.join(src_dir, pat % ep)
-        inputs += ['-ss', '%.3f' % a, '-t', '%.3f' % (b - a), '-i', f]
+        a = max(0.0, min(a, _file_dur(f) - 1.0))
+        b = min(b, _file_dur(f) - 0.12)
+        if b - a < 1.0:
+            raise SystemExit('SEGMENT OUT OF RANGE: %s %.2f-%.2f (file %.2fs)'
+                             % (f, a, b, _file_dur(f)))
+        # quantize every segment length DOWN to whole frames: fractional
+        # frame leftovers make the real decoded input shorter than the
+        # offset math assumes, and xfade at the chain tail then stalls into
+        # a ~0.4s loop near the segment end
+        segs_q.append((ep, a, a + math.floor((b - a) * FPS + 1e-6) / float(FPS)))
+        inputs += ['-ss', '%.3f' % a, '-t', '%.3f' % (segs_q[-1][2] - a), '-i', f]
+    segs = segs_q
+    story = sum(b - a for _, a, b in segs)
+    total = story + endcard
     nvid = len(segs)
     inputs += ['-loop', '1', '-t', '%.2f' % (story + 0.5), '-i', logo]
     i_logo = nvid
@@ -199,7 +229,11 @@ def build(name, cfg, proj, tts_meta):
         sm = [fade if i in sm_at else 1.0 / FPS for i in range(nvid - 1)]
     fc = []
     for i in range(nvid):
-        fc.append('[%d:v]scale=%d:%d:flags=lanczos,setsar=1,fps=%d,format=yuv420p[vi%d]'
+        # setpts normalization: some episode files yield AV_NOPTS_VALUE dts
+        # after -ss input seek, which makes xfade/framesync emit frames in
+        # broken (looping) order — seen as a ~0.4s loop held for seconds
+        fc.append('[%d:v]scale=%d:%d:flags=lanczos,setsar=1,fps=%d,'
+                  'setpts=PTS-STARTPTS,format=yuv420p[vi%d]'
                   % (i, W, H, FPS, i))
     if sm:
         prev, L = '[vi0]', segs[0][2] - segs[0][1]
@@ -239,7 +273,7 @@ def build(name, cfg, proj, tts_meta):
 
     if not is_jp:
         for i in range(nvid):
-            fc.append('[%d:a]%s[ai%d]' % (i, A4, i))
+            fc.append('[%d:a]%s,asetpts=PTS-STARTPTS[ai%d]' % (i, A4, i))
         if sm:
             prev = '[ai0]'
             for j in range(1, nvid):
